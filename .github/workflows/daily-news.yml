@@ -26,4 +26,4 @@ jobs:
         GMAIL_USER: ${{ secrets.GMAIL_USER }}
         GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         DESTINATARIOS: ${{ secrets.DESTINATARIOS }}
-      run: python NOTICIAS/bot_noticias.py
+      run: python bot_noticias.py
