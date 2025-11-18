@@ -14,9 +14,9 @@ if not GMAIL_USER or not GMAIL_APP_PASSWORD:
     exit(1)
 
 hoy = datetime.datetime.now()
-hace_7_dias = hoy - datetime.timedelta(days=7)
+hace_2_dias = hoy - datetime.timedelta(days=2)
 
-print(f"Buscando noticias desde {hace_7_dias.strftime('%Y-%m-%d')} hasta {hoy.strftime('%Y-%m-%d')}\n")
+print(f"Buscando noticias desde {hace_2_dias.strftime('%Y-%m-%d')} hasta {hoy.strftime('%Y-%m-%d')}\n")
 
 feeds_rss = {
     "Google News - Argentina": "https://news.google.com/rss/search?q=argentina+finanzas",
@@ -43,7 +43,7 @@ def extraer_de_rss(url_feed, nombre_fuente):
         for entry in feed.entries:
             try:
                 fecha_pub = datetime.datetime(*entry.published_parsed[:6])
-                if fecha_pub >= hace_7_dias:
+                if fecha_pub >= hace_2_dias:
                     titulo = entry.title.lower()
                     if any(palabra in titulo for palabra in palabras_clave):
                         noticias_temp.append({
@@ -84,7 +84,7 @@ if noticias_unicas:
     <body style="font-family: Arial, sans-serif;">
         <h2>📰 Resumen de Noticias - Argentina & Mercados</h2>
         <p><strong>Fecha:</strong> {hoy.strftime('%d/%m/%Y %H:%M')}</p>
-        <p><strong>Período:</strong> Últimos 7 días</p>
+        <p><strong>Período:</strong> Ultimas 48 horas</p>
         <hr>
     """
     
