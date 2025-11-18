@@ -1,85 +1,73 @@
 import os
+import feedparser
 import datetime
 import smtplib
-import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 GMAIL_USER = os.environ.get('GMAIL_USER', '')
 GMAIL_APP_PASSWORD = os.environ.get('GMAIL_APP_PASSWORD', '')
 DESTINATARIOS = os.environ.get('DESTINATARIOS', '').split(',')
-NEWS_API_KEY = os.environ.get('NEWS_API_KEY', '')
 
 if not GMAIL_USER or not GMAIL_APP_PASSWORD:
-    print("ERROR: Faltan credenciales (GMAIL_USER o GMAIL_APP_PASSWORD)")
-    exit(1)
-
-if not NEWS_API_KEY:
-    print("ERROR: Falta NEWS_API_KEY")
+    print("ERROR: Faltan credenciales")
     exit(1)
 
 hoy = datetime.datetime.now()
-ayer = hoy - datetime.timedelta(days=1)
+hace_2_dias = hoy - datetime.timedelta(days=2)
 
-print(f"Buscando noticias desde {ayer.strftime('%Y-%m-%d')} hasta {hoy.strftime('%Y-%m-%d')}\n")
+print(f"Buscando noticias desde {hace_2_dias.strftime('%Y-%m-%d')} hasta {hoy.strftime('%Y-%m-%d')}\n")
 
-keywords_busqueda = [
-    "Argentina economy",
-    "Argentina politics",
-    "Argentina peso dollar",
-    "Argentina inflation BCRA",
-    "Argentina bonds debt",
-    "Milei Argentina",
-    "Argentina central bank",
-    "Argentina IMF"
+feeds_rss = {
+    "Ámbito Financiero": "https://www.ambito.com/rss/economia.xml",
+    "Cronista - Economía": "https://www.cronista.com/economia/feed/",
+    "Cronista - Finanzas": "https://www.cronista.com/finanzas/feed/",
+    "Infobae Economía": "https://www.infobae.com/economia/feed/",
+    "La Nación Economía": "https://www.lanacion.com.ar/economia/rss/",
+    "Google News - Argentina": "https://news.google.com/rss/search?q=argentina+economia+when:2d&hl=es-AR",
+    "Google News - Dólar": "https://news.google.com/rss/search?q=dolar+argentina+when:2d&hl=es-AR",
+    "Google News - BCRA": "https://news.google.com/rss/search?q=bcra+when:2d&hl=es-AR",
+    "Google News - Mercados": "https://news.google.com/rss/search?q=mercado+argentina+when:2d&hl=es-AR",
+    "Reuters Latam": "https://www.reuters.com/rssFeed/latinAmericaNews",
+}
+
+palabras_clave = [
+    "argentina", "mercado", "dólar", "bono", "inflación",
+    "cepo", "blue", "precio", "economía", "bcra",
+    "caputo", "milei", "reforma", "ley", "impuesto",
+    "reservas", "deuda", "dolar", "peso"
 ]
+
+def extraer_de_rss(url_feed, nombre_fuente):
+    noticias_temp = []
+    try:
+        feed = feedparser.parse(url_feed)
+        for entry in feed.entries:
+            try:
+                fecha_pub = datetime.datetime(*entry.published_parsed[:6])
+                if fecha_pub >= hace_2_dias:
+                    titulo = entry.title.lower()
+                    if any(palabra in titulo for palabra in palabras_clave):
+                        noticias_temp.append({
+                            'titulo': entry.title,
+                            'link': entry.link,
+                            'fecha': fecha_pub.strftime('%Y-%m-%d %H:%M'),
+                            'fuente': nombre_fuente
+                        })
+            except:
+                pass
+    except:
+        pass
+    return noticias_temp
 
 todas_noticias = []
 
-print("🔍 Buscando noticias en News API...")
-
-for keyword in keywords_busqueda:
-    try:
-        url = "https://newsapi.org/v2/everything"
-        params = {
-            'q': keyword,
-            'from': ayer.strftime('%Y-%m-%d'),
-            'to': hoy.strftime('%Y-%m-%d'),
-            'language': 'es,en',
-            'sortBy': 'publishedAt',
-            'apiKey': NEWS_API_KEY,
-            'pageSize': 15
-        }
-        
-        response = requests.get(url, params=params)
-        
-        if response.status_code == 200:
-            data = response.json()
-            articles = data.get('articles', [])
-            
-            for article in articles:
-                if article.get('title') and article.get('url'):
-                    try:
-                        fecha_pub = datetime.datetime.strptime(
-                            article['publishedAt'], 
-                            '%Y-%m-%dT%H:%M:%SZ'
-                        )
-                        
-                        todas_noticias.append({
-                            'titulo': article['title'],
-                            'descripcion': article.get('description', ''),
-                            'link': article['url'],
-                            'fecha': fecha_pub.strftime('%Y-%m-%d %H:%M'),
-                            'fuente': article.get('source', {}).get('name', 'Desconocida')
-                        })
-                    except:
-                        pass
-            
-            print(f"  ✓ {keyword}: {len(articles)} artículos")
-        else:
-            print(f"  ⚠️ Error en {keyword}: {response.status_code}")
-    except Exception as e:
-        print(f"  ❌ Error en {keyword}: {str(e)}")
+print("🔍 Buscando en fuentes RSS...")
+for nombre, url in feeds_rss.items():
+    noticias = extraer_de_rss(url, nombre)
+    todas_noticias.extend(noticias)
+    if noticias:
+        print(f"  ✓ {nombre}: {len(noticias)} noticias")
 
 titulos_vistos = set()
 noticias_unicas = []
@@ -98,16 +86,14 @@ if noticias_unicas:
     <body style="font-family: Arial, sans-serif;">
         <h2>📰 Resumen de Noticias - Argentina & Mercados</h2>
         <p><strong>Fecha:</strong> {hoy.strftime('%d/%m/%Y %H:%M')}</p>
-        <p><strong>Período:</strong> Últimas 24 horas</p>
+        <p><strong>Período:</strong> Últimas 48 horas</p>
         <hr>
     """
     
     for i, noticia in enumerate(noticias_unicas[:30], 1):
-        descripcion = noticia.get('descripcion', '')
         cuerpo_html += f"""
         <p>
             <strong>{i}. [{noticia['fecha']}]</strong> {noticia['titulo']}<br>
-            {f'<em>{descripcion}</em><br>' if descripcion else ''}
             <small>Fuente: {noticia['fuente']}</small><br>
             <a href="{noticia['link']}" target="_blank">Leer más →</a>
         </p>
@@ -115,7 +101,7 @@ if noticias_unicas:
     
     cuerpo_html += """
         <hr>
-        <p><small>Este resumen fue generado automáticamente usando News API.</small></p>
+        <p><small>Este resumen fue generado automáticamente.</small></p>
     </body>
     </html>
     """
