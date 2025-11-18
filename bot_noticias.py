@@ -2,12 +2,14 @@ import os
 import feedparser
 import datetime
 import smtplib
+import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 GMAIL_USER = os.environ.get('GMAIL_USER', '')
 GMAIL_APP_PASSWORD = os.environ.get('GMAIL_APP_PASSWORD', '')
 DESTINATARIOS = os.environ.get('DESTINATARIOS', '').split(',')
+NEWS_API_KEY = os.environ.get('NEWS_API_KEY', '')
 
 if not GMAIL_USER or not GMAIL_APP_PASSWORD:
     print("ERROR: Faltan credenciales")
@@ -18,6 +20,67 @@ hace_2_dias = hoy - datetime.timedelta(days=2)
 
 print(f"Buscando noticias desde {hace_2_dias.strftime('%Y-%m-%d')} hasta {hoy.strftime('%Y-%m-%d')}\n")
 
+todas_noticias = []
+
+# PARTE 1: Intentar News API (fuentes internacionales)
+if NEWS_API_KEY:
+    print("🔍 Intentando News API (Bloomberg, Reuters, Financial Times)...")
+    keywords_busqueda = [
+        "Argentina economy",
+        "Argentina politics",
+        "Argentina peso",
+        "Argentina inflation",
+        "Milei Argentina"
+    ]
+    
+    for keyword in keywords_busqueda:
+        try:
+            url = "https://newsapi.org/v2/everything"
+            params = {
+                'q': keyword,
+                'from': hace_2_dias.strftime('%Y-%m-%d'),
+                'to': hoy.strftime('%Y-%m-%d'),
+                'language': 'es,en',
+                'sortBy': 'publishedAt',
+                'apiKey': NEWS_API_KEY,
+                'pageSize': 10
+            }
+            
+            response = requests.get(url, params=params, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                articles = data.get('articles', [])
+                
+                for article in articles:
+                    if article.get('title') and article.get('url'):
+                        try:
+                            fecha_pub = datetime.datetime.strptime(
+                                article['publishedAt'], 
+                                '%Y-%m-%dT%H:%M:%SZ'
+                            )
+                            
+                            todas_noticias.append({
+                                'titulo': article['title'],
+                                'descripcion': article.get('description', ''),
+                                'link': article['url'],
+                                'fecha': fecha_pub.strftime('%Y-%m-%d %H:%M'),
+                                'fuente': article.get('source', {}).get('name', 'Desconocida')
+                            })
+                        except:
+                            pass
+                
+                print(f"  ✓ News API - {keyword}: {len(articles)} artículos")
+            else:
+                print(f"  ⚠️ News API - {keyword}: Error {response.status_code}")
+        except Exception as e:
+            print(f"  ⚠️ News API - {keyword}: {str(e)[:50]}")
+else:
+    print("⚠️ NEWS_API_KEY no configurada, usando solo RSS")
+
+# PARTE 2: RSS argentino (siempre como respaldo)
+print("\n🔍 Buscando en fuentes RSS argentinas...")
+
 feeds_rss = {
     "Ámbito Financiero": "https://www.ambito.com/rss/economia.xml",
     "Cronista - Economía": "https://www.cronista.com/economia/feed/",
@@ -27,8 +90,6 @@ feeds_rss = {
     "Google News - Argentina": "https://news.google.com/rss/search?q=argentina+economia+when:2d&hl=es-AR",
     "Google News - Dólar": "https://news.google.com/rss/search?q=dolar+argentina+when:2d&hl=es-AR",
     "Google News - BCRA": "https://news.google.com/rss/search?q=bcra+when:2d&hl=es-AR",
-    "Google News - Mercados": "https://news.google.com/rss/search?q=mercado+argentina+when:2d&hl=es-AR",
-    "Reuters Latam": "https://www.reuters.com/rssFeed/latinAmericaNews",
 }
 
 palabras_clave = [
@@ -50,6 +111,7 @@ def extraer_de_rss(url_feed, nombre_fuente):
                     if any(palabra in titulo for palabra in palabras_clave):
                         noticias_temp.append({
                             'titulo': entry.title,
+                            'descripcion': '',
                             'link': entry.link,
                             'fecha': fecha_pub.strftime('%Y-%m-%d %H:%M'),
                             'fuente': nombre_fuente
@@ -60,15 +122,13 @@ def extraer_de_rss(url_feed, nombre_fuente):
         pass
     return noticias_temp
 
-todas_noticias = []
-
-print("🔍 Buscando en fuentes RSS...")
 for nombre, url in feeds_rss.items():
     noticias = extraer_de_rss(url, nombre)
     todas_noticias.extend(noticias)
     if noticias:
         print(f"  ✓ {nombre}: {len(noticias)} noticias")
 
+# Eliminar duplicados
 titulos_vistos = set()
 noticias_unicas = []
 for noticia in todas_noticias:
@@ -91,9 +151,11 @@ if noticias_unicas:
     """
     
     for i, noticia in enumerate(noticias_unicas[:30], 1):
+        descripcion = noticia.get('descripcion', '')
         cuerpo_html += f"""
         <p>
             <strong>{i}. [{noticia['fecha']}]</strong> {noticia['titulo']}<br>
+            {f'<em>{descripcion}</em><br>' if descripcion else ''}
             <small>Fuente: {noticia['fuente']}</small><br>
             <a href="{noticia['link']}" target="_blank">Leer más →</a>
         </p>
@@ -101,7 +163,7 @@ if noticias_unicas:
     
     cuerpo_html += """
         <hr>
-        <p><small>Este resumen fue generado automáticamente.</small></p>
+        <p><small>Este resumen fue generado automáticamente (News API + RSS).</small></p>
     </body>
     </html>
     """
